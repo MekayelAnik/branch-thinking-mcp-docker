@@ -37,8 +37,8 @@ else
         echo "# Copy all source first (so we can modify package.json in place)"
         echo "COPY ./branch-thinking-mcp-src/ ./"
         echo ""
-        echo "# Install pnpm"
-        echo "RUN npm install -g pnpm"
+        echo "# Install pnpm (cache mount reuses npm downloads across builds)"
+        echo "RUN --mount=type=cache,target=/root/.npm npm install -g pnpm"
         echo ""
         # Common override injection and lodash move, plus removal of prepare script
         cat << 'EOF'
@@ -105,22 +105,22 @@ EOF
         if [[ "$BUILD_IN_DOCKER" == "true" ]]; then
             cat << 'EOF'
 
-# Install all dependencies, build, then prune in a single layer
-RUN pnpm install --no-frozen-lockfile && \
+# Install all dependencies, build, then prune (cache mount reuses pnpm store across builds)
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,target=/root/.npm \
+    pnpm install --no-frozen-lockfile && \
     pnpm exec tsc && \
     pnpm exec shx chmod +x dist/index.js && \
-    pnpm prune --prod && \
-    npm cache clean --force && \
-    pnpm store prune
+    pnpm prune --prod
 EOF
         else
             cat << 'EOF'
 
-# Install only production dependencies (dist/ already exists)
-RUN pnpm install --prod --no-frozen-lockfile --ignore-scripts && \
-    chmod +x dist/index.js && \
-    npm cache clean --force && \
-    pnpm store prune
+# Install only production dependencies (cache mount reuses pnpm store across builds)
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,target=/root/.npm \
+    pnpm install --prod --no-frozen-lockfile --ignore-scripts && \
+    chmod +x dist/index.js
 EOF
         fi
 
@@ -167,9 +167,8 @@ COPY --from=builder /app/package.json /app/
 # Set working directory to /app so that any postinstall scripts (e.g., supergateway) can find package.json if needed
 WORKDIR /app
 
-# Install Supergateway globally
-RUN npm install -g ${SUPERGATEWAY_PKG} && \
-    npm cache clean --force
+# Install Supergateway globally (cache mount reuses npm downloads)
+RUN --mount=type=cache,target=/root/.npm npm install -g ${SUPERGATEWAY_PKG}
 
 # Runtime configuration
 ARG PORT=8005
