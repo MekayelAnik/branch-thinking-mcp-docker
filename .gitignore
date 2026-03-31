@@ -3,7 +3,7 @@ resources/build_data
 resources/build-timestamp
 resources/build-timestamp.txt
 resources/tag
-Dockerfile.sequential-thinking-mcp
+Dockerfile.branch-thinking-mcp
 /.vs
-/Dockerfile.sequential-thinking-mcp-docker
+/Dockerfile.branch-thinking-mcp
 /Dockerfile
