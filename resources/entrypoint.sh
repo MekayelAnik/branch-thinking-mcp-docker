@@ -18,6 +18,9 @@ readonly HAPROXY_SERVER_NAME="branch-thinking"
 readonly HAPROXY_TEMPLATE="/etc/haproxy/haproxy.cfg.template"
 readonly HAPROXY_CONFIG="/tmp/haproxy.cfg"
 
+# MCP server entrypoint (built from source at image build time)
+readonly MCP_SERVER_ENTRY="/app/dist/index.js"
+
 trim() {
     local var="$*"
     var="${var#"${var%%[![:space:]]*}"}"
@@ -461,7 +464,14 @@ start_haproxy() {
 }
 
 start_mcp_server() {
-    local mcp_server_cmd="npx -y branch-thinking-mcp"
+    # Verify the built entrypoint exists
+    if [[ ! -f "$MCP_SERVER_ENTRY" ]]; then
+        echo "Error: MCP server entrypoint not found at $MCP_SERVER_ENTRY" >&2
+        echo "The image may not have built correctly - dist/ is missing." >&2
+        exit 1
+    fi
+
+    local mcp_server_cmd="node ${MCP_SERVER_ENTRY}"
 
     case "${PROTOCOL^^}" in
         SHTTP|STREAMABLEHTTP)
