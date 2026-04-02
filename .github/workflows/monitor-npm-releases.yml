@@ -54,7 +54,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NPM_PACKAGE: 'branch-thinking-mcp'
+  NPM_PACKAGE: '@modelcontextprotocol/server-branch-thinking'
   NPM_REGISTRY: 'https://registry.npmjs.org'
   MAX_VERSIONS: '10'
   TZ: ${{ vars.TZ || 'Asia/Dhaka' }}
