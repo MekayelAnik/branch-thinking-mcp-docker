@@ -6,7 +6,11 @@ BASE_IMAGE=$(cat ./build_data/base-image 2>/dev/null || echo "node:trixie-slim")
 HAPROXY_IMAGE=$(cat ./build_data/haproxy-image 2>/dev/null || echo "haproxy:lts")
 BRANCH_THINKING_VERSION=$(cat ./build_data/version 2>/dev/null || exit 1)
 BUILD_IN_DOCKER=$(cat ./build_data/build-in-docker 2>/dev/null || echo "false")
-SUPERGATEWAY_PKG='supergateway@latest'
+# mcp-proxy: stdio<->StreamableHTTP/SSE bridge. Replaces supergateway.
+# Stateful by default (one stdio child shared across all sessions) — avoids
+# the spawn-per-request memory leak that affected supergateway in stateless
+# mode (supercorp-ai/supergateway#108).
+MCP_PROXY_PKG=$(cat ./build_data/mcp_proxy_version 2>/dev/null || echo "mcp-proxy")
 DOCKERFILE_NAME="Dockerfile.$REPO_NAME"
 
 # Create a temporary file safely
@@ -138,24 +142,34 @@ COPY --from=haproxy-src /usr/local/sbin/haproxy /usr/local/sbin/haproxy
 RUN ln -sf /usr/local/sbin/haproxy /usr/sbin/haproxy
 
 # Install runtime system packages (Debian/trixie-slim)
+# python3 + pip stay at runtime to host the mcp-proxy stdio<->HTTP bridge.
 RUN apt-get update && \\
     apt-get install -y --no-install-recommends \\
         netcat-openbsd \\
+        curl \\
         wget \\
         gosu \\
         openssl \\
+        ca-certificates \\
         libstdc++6 \\
         libssl3t64 \\
-        libpcre2-8-0 && \\
+        libpcre2-8-0 \\
+        python3 python3-pip python3-venv && \\
     rm -rf /var/lib/apt/lists/*
+
+# Install mcp-proxy (replaces supergateway). Pure-Python, pip-installed.
+RUN --mount=type=cache,target=/root/.cache/pip \\
+    echo "Installing ${MCP_PROXY_PKG}..." && \\
+    pip install --no-cache-dir --break-system-packages ${MCP_PROXY_PKG} && \\
+    mcp-proxy --version || true
 EOF
 
         cat << 'EOF'
 
 # Copy entrypoint scripts and make them executable
 COPY ./resources/ /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh && \
-    chmod +r /usr/local/bin/build-timestamp.txt && \
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/banner.sh /usr/local/bin/healthcheck.sh && \
+    chmod +r /usr/local/bin/build-timestamp.txt 2>/dev/null || true && \
     mkdir -p /etc/haproxy && \
     mv -vf /usr/local/bin/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
@@ -164,11 +178,8 @@ COPY --from=builder /app/dist /app/dist
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/
 
-# Set working directory to /app so that any postinstall scripts (e.g., supergateway) can find package.json if needed
+# Set working directory to /app
 WORKDIR /app
-
-# Install Supergateway globally (cache mount reuses npm downloads)
-RUN --mount=type=cache,target=/root/.npm npm install -g ${SUPERGATEWAY_PKG}
 
 # Runtime configuration
 ARG PORT=8005
@@ -176,8 +187,16 @@ ARG API_KEY=""
 ENV PORT=${PORT}
 ENV API_KEY=${API_KEY}
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD sh -c 'wget -q --spider --no-check-certificate $([ "$ENABLE_HTTPS" = "true" ] && echo https || echo http)://127.0.0.1:${PORT:-8005}/healthz'
+# mcp-proxy and HAProxy concurrency defaults (overridable at runtime).
+ENV MCP_PROXY_STATELESS=false
+ENV BRANCH_THINKING_MAX_MEM_MB=4096
+ENV HAPROXY_FRONTEND_MAXCONN=64
+ENV HAPROXY_SERVER_MAXCONN=16
+
+LABEL org.opencontainers.image.description="Branch Thinking MCP Server (mcp-proxy stdio<->HTTP bridge)"
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ["/usr/local/bin/healthcheck.sh"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 EOF
