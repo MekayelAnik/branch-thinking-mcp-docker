@@ -44,47 +44,27 @@ else
         echo "# Install pnpm (cache mount reuses npm downloads across builds)"
         echo "RUN --mount=type=cache,target=/root/.npm npm install -g pnpm"
         echo ""
-        # Common override injection and lodash move, plus removal of prepare script
+        # Strip prepare script and ensure security overrides survive. Dep versions
+        # are now canonical in the fork's package.json (graphlib4, TS6, HF
+        # transformers, MCP SDK 1.29) — do NOT force-pin them here.
         cat << 'EOF'
-# Inject security overrides, remove prepare script, and move lodash
 RUN node -e "\
 const fs = require('fs'); \
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); \
 \
-/* Update direct dependencies to latest versions */ \
-pkg.dependencies = Object.assign(pkg.dependencies || {}, { \
-    '@modelcontextprotocol/sdk': '^1.26.0', \
-    '@dagrejs/graphlib': '^3.0.4', \
-    '@xenova/transformers': '^2.17.2', \
-    'chalk': '^5.6.2', \
-    'fs-extra': '^11.3.3', \
-    'lru-cache': '^11.2.6', \
-    'ml-kmeans': '^7.0.0', \
-    'zod': '^4.3.6' \
-}); \
-\
-/* Remove cross-spawn, body-parser, send from direct deps - they are transitive only */ \
+/* Strip top-level deps that should only be transitive */ \
 ['cross-spawn', 'body-parser', 'send'].forEach(function(name) { \
     if (pkg.dependencies && pkg.dependencies[name]) { \
         delete pkg.dependencies[name]; \
     } \
 }); \
 \
-/* Inject overrides for transitive and peer dependency pinning */ \
+/* Security pins for transitive deps (CVE-driven) */ \
 pkg.pnpm = pkg.pnpm || {}; \
 pkg.pnpm.overrides = Object.assign(pkg.pnpm.overrides || {}, { \
-    '@modelcontextprotocol/sdk': '^1.26.0', \
-    '@dagrejs/graphlib': '^3.0.4', \
-    '@xenova/transformers': '^2.17.2', \
-    'chalk': '^5.6.2', \
-    'fs-extra': '^11.3.3', \
-    'lru-cache': '^11.2.6', \
-    'ml-kmeans': '^7.0.0', \
     'cross-spawn': '^7.0.6', \
-    'lodash': '^4.17.23', \
     'body-parser': '^2.2.2', \
-    'send': '^1.2.1', \
-    'zod': '^4.3.6' \
+    'send': '^1.2.1' \
 }); \
 \
 /* Remove prepare script so it doesn't auto-run during install */ \
@@ -192,6 +172,12 @@ ENV MCP_PROXY_STATELESS=false
 ENV BRANCH_THINKING_MAX_MEM_MB=4096
 ENV HAPROXY_FRONTEND_MAXCONN=64
 ENV HAPROXY_SERVER_MAXCONN=16
+
+# HuggingFace transformers cache. Models (~275 MB total: MiniLM + DistilBART)
+# download on first inference; mount /data/hf-cache as a volume to persist
+# across container restarts.
+ENV HF_HOME=/data/hf-cache
+VOLUME ["/data/hf-cache"]
 
 LABEL org.opencontainers.image.description="Branch Thinking MCP Server (mcp-proxy stdio<->HTTP bridge)"
 

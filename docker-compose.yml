@@ -27,6 +27,16 @@ services:
       # - API_KEY=replace-with-strong-secret
       # Optional: CORS origins (comma-separated, or * for all)
       # - CORS=*
+      # HuggingFace transformers cache root. Models (~275 MB total:
+      # MiniLM-L6-v2 + DistilBART-CNN-6-6) download on first inference;
+      # the named volume below persists them across restarts.
+      - HF_HOME=/data/hf-cache
     ports:
       - "8005:8005"
+    volumes:
+      - branch-thinking-cache:/data/hf-cache
     restart: unless-stopped
+
+volumes:
+  branch-thinking-cache:
+    name: branch-thinking-cache

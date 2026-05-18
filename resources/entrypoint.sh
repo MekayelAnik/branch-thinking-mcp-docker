@@ -741,6 +741,14 @@ main() {
     validate_ip_access
     validate_cors
 
+    # HuggingFace model cache. Persisted across restarts when /data/hf-cache is
+    # mounted as a volume. mkdir + chown so the node app writes successfully
+    # regardless of host volume ownership.
+    HF_HOME="${HF_HOME:-/data/hf-cache}"
+    mkdir -p "$HF_HOME"
+    chown -R "${PUID}:${PGID}" "$HF_HOME" 2>/dev/null || true
+    export HF_HOME
+
     if [[ ! -f "$FIRST_RUN_FILE" ]]; then
         handle_first_run
     fi
