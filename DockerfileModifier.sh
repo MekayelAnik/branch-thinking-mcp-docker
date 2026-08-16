@@ -141,7 +141,7 @@ RUN apt-get update && \\
 RUN --mount=type=cache,target=/root/.cache/pip \\
     echo "Installing ${MCP_PROXY_PKG}..." && \\
     pip install --no-cache-dir --break-system-packages ${MCP_PROXY_PKG} && \\
-    mcp-proxy --version || true
+    mcp-proxy --version
 EOF
 
         cat << 'EOF'
